@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stimulus Export</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    #stim-export { width: 1024px; height: 512px; position: absolute; left: -10000px; top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-top: 16px; }
+    .grid figure { margin: 0; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+    .grid img { width: 100%; display: block; }
+    .grid figcaption { font-size: 0.8rem; color: var(--muted); }
+    .opts { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
+    .opts label { display: flex; flex-direction: column; font-size: 0.9rem; }
+    .opts input, .opts select { font: inherit; padding: 6px; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+  <main id="app">
+    <section class="panel">
+      <h1>Stimulus export (for VLM runs)</h1>
+      <p>Renders the exact trials participants see (same <code>stimulusSeed</code> from <code>js/config.js</code>)
+        as PNGs plus a manifest CSV with the correct answers and complexity metrics, packed in a ZIP.
+        Round-1 trials also get a <code>_solution.png</code> (left object rotated into the right object's pose, coloured by segment) that can be used as feedback.</p>
+      <div class="opts">
+        <label>Order seed <input id="order" type="number" value="1"></label>
+        <label>Group
+          <select id="group"><option value="0">0</option><option value="1">1 (same/different swapped)</option></select>
+        </label>
+        <button id="run">Render &amp; download ZIP</button>
+      </div>
+      <p id="status" class="hint"></p>
+      <div class="grid" id="grid"></div>
+    </section>
+  </main>
+  <canvas id="stim-export"></canvas>
+  <script type="module" src="js/export.js"></script>
+</body>
+</html>

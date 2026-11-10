@@ -1,0 +1,5 @@
+pandas>=2.0
+numpy
+scipy
+statsmodels>=0.14
+matplotlib

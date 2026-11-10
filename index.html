@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mentální rotace</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <section id="content" class="panel"></section>
+    <section id="stage" hidden>
+      <div id="progress"></div>
+      <div id="canvas-wrap">
+        <canvas id="stim"></canvas>
+        <div id="fixation" hidden>+</div>
+      </div>
+      <div id="response-bar"></div>
+      <div id="feedback"></div>
+      <div id="demo-bar" hidden></div>
+    </section>
+  </main>
+  <noscript>This experiment requires JavaScript.</noscript>
+  <script type="module" src="js/experiment.js"></script>
+</body>
+</html>
