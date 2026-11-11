@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 export const CONFIG = {
   experimentName: 'mental-rotation-snakes',
-  version: '1.2.0',
+  version: '1.4.0',
   defaultLang: 'cs', // 'cs' | 'en'  (override with ?lang=en)
 
   // Stimuli are pre-generated: after changing any stimulus setting below, run
@@ -47,6 +47,9 @@ export const CONFIG = {
   // 'x' = horizontal (rotation in depth).
   angles: [30, 60, 90, 120, 150],
   axes: ['y', 'z'],
+  // Search effort for balancing angles and axes across bends, cubes, rounds and conditions.
+  balanceRestarts: 30,
+  balanceSteps: 5000,
   // Both objects are first viewed from this oblique tilt (deg about the x axis)
   // and a random yaw, so they look 3D.
   tiltRange: [20, 35],
@@ -74,8 +77,6 @@ export const CONFIG = {
   trialTimeoutMs: 30000,
   animDelayMs: 500,     // pause before the solution animation starts
   animRotateMs: 2200,   // rotation of left object into the right object's pose
-  animHoldMs: 700,      // pause before mirroring (different trials)
-  animMirrorMs: 1400,   // mirror flip (different trials)
 
   // ---- Data storage --------------------------------------------------------
   // 'gas'      : Google Apps Script web app -> appends rows to a Google Sheet (see README)

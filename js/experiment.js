@@ -131,8 +131,6 @@ function waitResponse(t0, timeoutMs) {
 const animOpts = (onPhase) => ({
   delayMs: CONFIG.animDelayMs,
   rotateMs: CONFIG.animRotateMs,
-  holdMs: CONFIG.animHoldMs,
-  mirrorMs: CONFIG.animMirrorMs,
   onPhase,
 });
 
@@ -213,16 +211,7 @@ async function screenInstructions() {
   demoBar.querySelectorAll('[data-demo]').forEach((b) => b.addEventListener('click', () => { blur(); play(+b.dataset.demo); }));
   play(0);
 
-  const start = $('#start');
-  await new Promise((resolve) => {
-    start.addEventListener('click', () => {
-      // Fullscreen must be requested inside the click handler (user gesture).
-      const el = document.documentElement;
-      if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {});
-      resolve();
-    });
-  });
-  blur();
+  await waitContinue($('#start'), { space: false });
   renderer.stop();
   demoBar.hidden = true;
   demoBar.innerHTML = '';
@@ -389,13 +378,11 @@ async function runBlock(trials, round, offset) {
 async function finish() {
   session.finished_at = new Date().toISOString();
   session.duration_s = Math.round((Date.parse(session.finished_at) - Date.parse(session.started_at)) / 1000);
-  session.fullscreen_at_end = document.fullscreenElement ? 1 : 0;
   const allRows = rows.map((r) => ({ ...session, ...r }));
   const csv = toCSV(allRows);
   const stamp = session.started_at.replace(/[:.]/g, '-');
   const filename = `${CONFIG.experimentName}_${participantId}_${stamp}.csv`;
   backupLocal(`mr_final_${participantId}`, csv);
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 
   showStage(false);
   showContent(T.saving);

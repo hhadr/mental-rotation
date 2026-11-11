@@ -27,6 +27,7 @@ function shuffleConstrained(rng, trials, maxSame = 3) {
 export const stimulusConfigKey = (c) => JSON.stringify([
   c.stimulusSeed, c.complexitySlots, c.minSegmentLength, c.angles, c.axes, c.tiltRange,
   c.repeatNewView, c.minCubeVisibility, c.viewCandidates, c.minRepeatPoseDiff, c.practiceTrials,
+  c.balanceRestarts, c.balanceSteps,
 ]);
 
 function fnv1a(text) {
@@ -74,15 +75,80 @@ export function buildStimuli(config) {
     throw new Error(`Not enough distinct viewable shapes with ${nCubes} cubes / ${nBends} bends`);
   };
 
-  // Balanced angle & axis marginals for a set of trials.
-  const assignAngles = (trials) => {
-    const seq = (vals) => {
-      let out = [];
-      while (out.length < trials.length) out = out.concat(rng.shuffle(vals));
-      return rng.shuffle(out.slice(0, trials.length));
+  // Assigns angles and axes so they are as balanced as possible across complexity.
+  // Angles stay exactly balanced within each phase x condition, axes within each block x condition;
+  // a local search then swaps values inside those groups to even out the crossed tables below.
+  const assignAnglesAndAxes = (trials) => {
+    const groupBy = (keyOf) => {
+      const groups = new Map();
+      for (const t of trials) groups.set(keyOf(t), [...(groups.get(keyOf(t)) ?? []), t]);
+      return [...groups.values()];
     };
-    const angles = seq(config.angles), axes = seq(config.axes);
-    trials.forEach((t, i) => { t.angle = angles[i]; t.axis = axes[i]; });
+    const angleGroups = groupBy((t) => `${t.phase}|${t.condition}`);
+    const axisGroups = groupBy((t) => `${t.block}|${t.condition}`);
+    const deal = (group, field, values) => {
+      let out = [];
+      while (out.length < group.length) out = out.concat(rng.shuffle(values));
+      rng.shuffle(out.slice(0, group.length)).forEach((v, i) => { group[i][field] = v; });
+    };
+    const cubes = (t) => t.shape.metrics.n_cubes;
+    const bends = (t) => t.shape.metrics.n_bends;
+    const meanAngle = config.angles.reduce((s, a) => s + a, 0) / config.angles.length;
+    const tables = [
+      (t) => [t.block, bends(t), t.angle],
+      (t) => [t.shape.slot, t.angle],
+      (t) => [cubes(t), t.angle],
+      (t) => [t.phase, t.axis],
+      (t) => [t.block, t.angle, t.axis],
+      (t) => [bends(t), t.angle, t.axis],
+      (t) => [t.block, bends(t), t.axis],
+      (t) => [t.block, cubes(t), t.axis],
+      (t) => [cubes(t), t.axis],
+    ];
+    // Sum of squared cell counts: smallest when every table is as even as possible.
+    const cost = () => {
+      let total = 0;
+      for (const keys of tables) {
+        const counts = new Map();
+        for (const t of trials) {
+          const k = keys(t).join('|');
+          counts.set(k, (counts.get(k) ?? 0) + 1);
+        }
+        for (const c of counts.values()) total += c * c;
+      }
+      // Every cube count should have about the same mean angle.
+      const offsets = new Map();
+      for (const t of trials) offsets.set(cubes(t), (offsets.get(cubes(t)) ?? 0) + t.angle - meanAngle);
+      for (const offset of offsets.values()) total += (offset / 30) ** 2;
+      // A repeated shape must come back at a different angle.
+      for (const t of trials) if (t.trainTrial && t.angle === t.trainTrial.angle) total += 1000;
+      return total;
+    };
+    const swap = (a, b, field) => { [a[field], b[field]] = [b[field], a[field]]; };
+
+    let best = null;
+    let bestCost = Infinity;
+    for (let restart = 0; restart < config.balanceRestarts; restart++) {
+      angleGroups.forEach((g) => deal(g, 'angle', config.angles));
+      axisGroups.forEach((g) => deal(g, 'axis', config.axes));
+      let current = cost();
+      for (let step = 0; step < config.balanceSteps; step++) {
+        const field = rng.int(2) ? 'angle' : 'axis';
+        const groups = field === 'angle' ? angleGroups : axisGroups;
+        const g = groups[rng.int(groups.length)];
+        const a = g[rng.int(g.length)];
+        const b = g[rng.int(g.length)];
+        if (a === b || a[field] === b[field]) continue;
+        swap(a, b, field);
+        const next = cost();
+        if (next <= current) current = next; else swap(a, b, field);
+      }
+      if (current < bestCost) {
+        bestCost = current;
+        best = trials.map((t) => [t.angle, t.axis]);
+      }
+    }
+    trials.forEach((t, i) => { [t.angle, t.axis] = best[i]; });
   };
 
   const slots = config.complexitySlots.map(([n, b, np], si) => [0, 1, 2].map(() => newShape(n, b, si, np)));
@@ -102,8 +168,6 @@ export function buildStimuli(config) {
     repeated.push(repeatedFromSame.has(si) ? { shape: a, trainTrial: tSame } : { shape: b, trainTrial: tDiff });
     fresh.push(trio[2]);
   });
-  assignAngles(train.filter((t) => t.condition === 'same'));
-  assignAngles(train.filter((t) => t.condition === 'different'));
 
   // ----- Round 2 (test): 10 repeated + 10 new ---------------------------------
   // Repeated: ~half keep their round-1 answer, ~half switch, overall 50 % same.
@@ -112,7 +176,6 @@ export function buildStimuli(config) {
   const keepS = Math.ceil(repSame.length / 2), keepD = Math.ceil(repDiff.length / 2);
   const mkRep = (r, condition) => ({
     block: 'test', phase: 'test_repeated', shape: r.shape, condition, trainTrial: r.trainTrial,
-    ...(config.repeatNewView ? {} : { angle: r.trainTrial.angle, axis: r.trainTrial.axis }),
   });
   const repTrials = [
     ...repSame.map((r, i) => mkRep(r, i < keepS ? 'same' : 'different')),
@@ -122,13 +185,13 @@ export function buildStimuli(config) {
     block: 'test', phase: 'test_new', shape: s,
     condition: i < Math.ceil(fresh.length / 2) ? 'same' : 'different',
   }));
-  if (config.repeatNewView) {
-    assignAngles(repTrials.filter((t) => t.condition === 'same'));
-    assignAngles(repTrials.filter((t) => t.condition === 'different'));
-  }
-  assignAngles(newTrials.filter((t) => t.condition === 'same'));
-  assignAngles(newTrials.filter((t) => t.condition === 'different'));
   const test = [...repTrials, ...newTrials];
+  if (config.repeatNewView) {
+    assignAnglesAndAxes([...train, ...test]);
+  } else {
+    assignAnglesAndAxes([...train, ...newTrials]);
+    for (const t of repTrials) { t.angle = t.trainTrial.angle; t.axis = t.trainTrial.axis; }
+  }
 
   // ----- Demo shape for the instructions (not used in any trial) ---------------
   const demoShape = newShape(9, 3, -1);

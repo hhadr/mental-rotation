@@ -9,7 +9,7 @@ It is a static site with no build step, so it runs on GitHub Pages as is.
 | | Round 1 – training | Round 2 – test |
 |---|---|---|
 | Trials | 20 unique shapes | 10 **repeated** from round 1 + 10 **new** |
-| Feedback | correct/wrong, then an animation of the left object rotating (and mirror-flipping for *different* trials) into the right one's pose, cubes coloured by segment | none |
+| Feedback | correct/wrong, then an animation of the left object rotating into the right one's pose (on *different* trials the two then visibly don't match), cubes coloured by segment | none |
 | Same / different | 10 / 10 | 5 / 5 among repeated, 5 / 5 among new |
 
 * **Practice**: 3 pairs before round 1 (`practiceTrials`), with round-1 feedback. They use their own 3-bend shapes, which appear
@@ -27,7 +27,8 @@ It is a static site with no build step, so it runs on GitHub Pages as is.
   because counterbalancing can swap them. Each trial uses the clearest of 400 random views, and shapes without clear views at
   every angle are discarded. The lowest score in the current set is 0.255, recorded per trial as `min_cube_visible`.
 * **Angular disparity** is 30/60/90/120/150°. The rotation is about the vertical axis (depth) or the picture plane.
-  Both are balanced within each condition.
+  Angles are exactly balanced within each phase and condition, and a search in `js/design.js` then evens out angles and axes
+  across bends, cubes and rounds. A repeated shape always returns at a different angle from round 1.
 * **Repeated shapes** in round 2 are shown from a new viewpoint and at a new angle (`repeatNewView`). About half keep
   their round-1 answer and half switch it (`same_condition_as_train`), so remembering the answer doesn't help.
 * **Pre-generated stimuli**: `js/stimuli.js` holds the 30 shapes and all trials, so every participant and the VLM get the same set.

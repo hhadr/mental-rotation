@@ -53,25 +53,22 @@ export class PairRenderer {
     return this.mats.get(color);
   }
 
-  // Returns {outer, inner}: outer carries the orientation, inner carries a
-  // mirror scale (used by the animation), cubes are centred on the centroid.
+  // Returns {outer, radius}: outer carries the orientation, cubes are centred on the centroid.
   buildShape(shape, view, { mirror = false, colored = false } = {}) {
     let vox = shape.voxels.map((v) => applyM(ROTATIONS[view.prerot], v));
     if (mirror) vox = mirrorVoxels(vox);
     const c = [0, 1, 2].map((k) => vox.reduce((s, v) => s + v[k], 0) / vox.length);
     const outer = new THREE.Group();
-    const inner = new THREE.Group();
-    outer.add(inner);
     vox.forEach((v, i) => {
       const color = colored ? PALETTE[shape.segIdx[i] % PALETTE.length] : NEUTRAL;
       const mesh = new THREE.Mesh(this.boxGeom, this.material(color));
       mesh.position.set(v[0] - c[0], v[1] - c[1], v[2] - c[2]);
       const edges = new THREE.LineSegments(this.edgeGeom, this.lineMat);
       edges.position.copy(mesh.position);
-      inner.add(mesh, edges);
+      outer.add(mesh, edges);
     });
     const radius = Math.max(...vox.map((v) => Math.hypot(v[0] - c[0], v[1] - c[1], v[2] - c[2]))) + Math.sqrt(3) / 2;
-    return { outer, inner, radius };
+    return { outer, radius };
   }
 
   setTrial(trial, { colored = false } = {}) {
@@ -135,25 +132,22 @@ export class PairRenderer {
     if (this._resolve) { this._resolve(false); this._resolve = null; }
   }
 
-  // Pose the left object like the right one (rotation only, no mirror).
+  // Pose the left object like the right one.
   // Used for the static "solution" image in the VLM export.
   poseLeftAsRight() {
     const { L, qr } = this.state;
     L.outer.quaternion.copy(qr);
-    L.inner.scale.set(1, 1, 1);
   }
 
-  // Solution animation: left object rotates into the right object's orientation;
-  // for "different" trials it then mirror-flips, showing it is the mirror image.
-  // onPhase('rotate' | 'mirror' | 'done'). Resolves true when finished.
-  playSolution({ delayMs = 500, rotateMs = 2200, holdMs = 700, mirrorMs = 1400, onPhase = () => {} } = {}) {
+  // Solution animation: the left object rotates into the right object's orientation.
+  // On "different" trials the two objects then visibly fail to match.
+  // onPhase('rotate' | 'done'). Resolves true when finished.
+  playSolution({ delayMs = 500, rotateMs = 2200, onPhase = () => {} } = {}) {
     this.stop();
-    const { L, qb, qr, trial } = this.state;
-    const isDiff = trial.condition === 'different';
+    const { L, qb, qr } = this.state;
     L.outer.quaternion.copy(qb);
-    L.inner.scale.set(1, 1, 1);
     this.render();
-    const total = delayMs + rotateMs + (isDiff ? holdMs + mirrorMs : 0);
+    const total = delayMs + rotateMs;
     let phase = null;
     const setPhase = (p) => { if (p !== phase) { phase = p; onPhase(p); } };
     return new Promise((resolve) => {
@@ -164,11 +158,6 @@ export class PairRenderer {
         const a = ease((t - delayMs) / rotateMs);
         L.outer.quaternion.slerpQuaternions(qb, qr, a);
         if (t >= delayMs) setPhase('rotate');
-        if (isDiff) {
-          const b = ease((t - delayMs - rotateMs - holdMs) / mirrorMs);
-          L.inner.scale.x = 1 - 2 * b;
-          if (t >= delayMs + rotateMs + holdMs) setPhase('mirror');
-        }
         this.render();
         if (t < total) {
           this.raf = requestAnimationFrame(step);
