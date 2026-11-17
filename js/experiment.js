@@ -5,6 +5,7 @@ import { PairRenderer } from './renderer.js';
 import { STRINGS } from './i18n.js';
 import { toCSV, downloadText, backupLocal, saveData } from './data.js';
 import { randomSeed } from './rng.js';
+import { summarizeRounds, rtImprovement } from './stats.js';
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -25,7 +26,15 @@ if (STIMULI.configKey !== stimulusConfigKey(CONFIG)) {
   document.body.textContent = 'js/stimuli.js is out of date: run node tools/build-stimuli.mjs';
   throw new Error('Stale stimuli');
 }
-const design = arrangeDesign(STIMULI, { orderSeed, group });
+const nSets = STIMULI.sets.length;
+const stimulusSet = /^\d+$/.test(params.get('set') ?? '') && +params.get('set') >= 1 && +params.get('set') <= nSets
+  ? +params.get('set')
+  : (() => {
+    const pool = (CONFIG.assignSets ?? []).filter((x) => x >= 1 && x <= nSets);
+    const choices = pool.length ? pool : [...Array(nSets).keys()].map((i) => i + 1);
+    return choices[randomSeed() % choices.length];
+  })();
+const design = arrangeDesign(STIMULI, { orderSeed, group, set: stimulusSet });
 
 const $ = (s) => document.querySelector(s);
 const content = $('#content');
@@ -43,6 +52,7 @@ const session = {
   version: CONFIG.version,
   stimulus_seed: CONFIG.stimulusSeed,
   stimulus_hash: STIMULI.hash,
+  stimulus_set: stimulusSet,
   order_seed: orderSeed,
   group,
   lang,
@@ -385,22 +395,55 @@ async function finish() {
   backupLocal(`mr_final_${participantId}`, csv);
 
   showStage(false);
-  showContent(T.saving);
-  let html;
-  let primaryDownload = false;
-  try {
-    await saveData(CONFIG, filename, csv, allRows);
-    html = T.saved;
-  } catch (e) {
-    console.warn('Data upload failed:', e);
-    html = e.message === 'no-backend' ? T.downloadOnly : T.saveFailed;
-    primaryDownload = true;
-  }
-  running = false;
-  showContent(`${html}
-    <div class="actions"><button id="dl" class="${primaryDownload ? '' : 'secondary'}">${primaryDownload ? T.download : T.backupDownload}</button></div>
+  const stats = statsHtml();
+  const show = (status, button = '') => showContent(`${status}
+    ${button ? `<div class="actions">${button}</div>` : ''}
+    ${stats}
     <p class="hint">ID: ${participantId}</p>`);
-  $('#dl').addEventListener('click', () => downloadText(csv, filename));
+
+  // No download for participants: if sending fails they can retry (the server ignores duplicates).
+  // Only the 'download' backend, which has no server, still offers the CSV.
+  const attempt = async () => {
+    showContent(T.saving);
+    try {
+      await saveData(CONFIG, filename, csv, allRows);
+      running = false;
+      show(T.saved);
+    } catch (e) {
+      console.warn('Data upload failed:', e);
+      if (e.message === 'no-backend') {
+        running = false;
+        show(T.downloadOnly, `<button id="dl">${T.download}</button>`);
+        $('#dl').addEventListener('click', () => downloadText(csv, filename));
+      } else {
+        show(T.saveFailed, `<button id="retry">${T.retry}</button>`);
+        $('#retry').addEventListener('click', attempt);
+      }
+    }
+  };
+  await attempt();
+}
+
+function statsHtml() {
+  const rounds = summarizeRounds(rows);
+  const sec = (ms) => (ms === null ? '–'
+    : `${(ms / 1000).toLocaleString(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s`);
+  const pct = (x) => (x === null ? '–' : x.toLocaleString(lang, { style: 'percent' }));
+  const improvement = rtImprovement(rounds);
+  const line = (label, cell) => `<tr><th scope="row">${label}</th>${rounds.map((r) => `<td>${cell(r)}</td>`).join('')}</tr>`;
+  return `
+    <h2>${T.statsHeading}</h2>
+    <table class="stats">
+      <thead><tr><td></td>${rounds.map((r) => `<th scope="col">${T.roundLabel(r.round)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${line(T.statAccuracy, (r) => `${r.correct} / ${r.n} (${pct(r.accuracy)})`)}
+        ${line(T.statMeanRt, (r) => sec(r.meanRt))}
+        ${line(T.statMinRt, (r) => sec(r.minRt))}
+        ${line(T.statMaxRt, (r) => sec(r.maxRt))}
+      </tbody>
+    </table>
+    ${improvement === null ? '' : `<p>${T.rtChange(improvement, pct(Math.abs(improvement)))}</p>`}
+    <p class="hint">${T.statsNote}</p>`;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 export const CONFIG = {
   experimentName: 'mental-rotation-snakes',
-  version: '1.4.0',
+  version: '1.5.0',
   defaultLang: 'cs', // 'cs' | 'en'  (override with ?lang=en)
 
   // Stimuli are pre-generated: after changing any stimulus setting below, run
@@ -47,6 +47,16 @@ export const CONFIG = {
   // 'x' = horizontal (rotation in depth).
   angles: [30, 60, 90, 120, 150],
   axes: ['y', 'z'],
+  // Number of stimulus sets. Every set uses the same 30 shapes, but shape roles
+  // (round-1 only / repeated / new) rotate and angles, axes and views differ.
+  // Each participant gets one set at random (or forced with ?set=1..N).
+  stimulusSets: 3,
+  // Set 1 is the exact trial set of version 1.4.0, so data collected with it can be used as set 1.
+  // Leave empty to generate all sets.
+  firstSet: 'tools/set1-v1.4.0.json',
+  // Sets new participants are randomly assigned to (not part of the stimuli, no rebuild needed).
+  // Set 1 already has the participants from version 1.4.0, so new ones go to sets 2 and 3 for now.
+  assignSets: [2, 3],
   // Search effort for balancing angles and axes across bends, cubes, rounds and conditions.
   balanceRestarts: 30,
   balanceSteps: 5000,

@@ -27,7 +27,7 @@ function shuffleConstrained(rng, trials, maxSame = 3) {
 export const stimulusConfigKey = (c) => JSON.stringify([
   c.stimulusSeed, c.complexitySlots, c.minSegmentLength, c.angles, c.axes, c.tiltRange,
   c.repeatNewView, c.minCubeVisibility, c.viewCandidates, c.minRepeatPoseDiff, c.practiceTrials,
-  c.balanceRestarts, c.balanceSteps,
+  c.balanceRestarts, c.balanceSteps, c.stimulusSets, c.firstSet,
 ]);
 
 function fnv1a(text) {
@@ -39,7 +39,9 @@ function fnv1a(text) {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-export function buildStimuli(config) {
+// `firstSet` (optional): trials of an already-used set ({train, test} as stored in js/stimuli.js).
+// It becomes set 1 unchanged, and the other sets rotate shape roles relative to it.
+export function buildStimuli(config, { firstSet = null } = {}) {
   const rng = makeRng(config.stimulusSeed);
   const seen = new Set();
   const shapes = [];
@@ -75,6 +77,9 @@ export function buildStimuli(config) {
     throw new Error(`Not enough distinct viewable shapes with ${nCubes} cubes / ${nBends} bends`);
   };
 
+  // Angles each shape was already shown at in earlier sets, so later sets can vary them.
+  const usedAngles = new Map();
+
   // Assigns angles and axes so they are as balanced as possible across complexity.
   // Angles stay exactly balanced within each phase x condition, axes within each block x condition;
   // a local search then swaps values inside those groups to even out the crossed tables below.
@@ -96,9 +101,11 @@ export function buildStimuli(config) {
     const meanAngle = config.angles.reduce((s, a) => s + a, 0) / config.angles.length;
     const tables = [
       (t) => [t.block, bends(t), t.angle],
+      (t) => [t.block, bends(t), t.angle], // counted twice: the key complexity contrast
       (t) => [t.shape.slot, t.angle],
       (t) => [cubes(t), t.angle],
       (t) => [t.phase, t.axis],
+      (t) => [t.phase, t.axis], // counted twice: repeated vs new must not differ in axis
       (t) => [t.block, t.angle, t.axis],
       (t) => [bends(t), t.angle, t.axis],
       (t) => [t.block, bends(t), t.axis],
@@ -120,6 +127,8 @@ export function buildStimuli(config) {
       const offsets = new Map();
       for (const t of trials) offsets.set(cubes(t), (offsets.get(cubes(t)) ?? 0) + t.angle - meanAngle);
       for (const offset of offsets.values()) total += (offset / 30) ** 2;
+      // Prefer angles a shape has not been shown at in earlier sets.
+      for (const t of trials) if (usedAngles.get(t.shape.id)?.has(t.angle)) total += 2;
       // A repeated shape must come back at a different angle.
       for (const t of trials) if (t.trainTrial && t.angle === t.trainTrial.angle) total += 1000;
       return total;
@@ -152,46 +161,6 @@ export function buildStimuli(config) {
   };
 
   const slots = config.complexitySlots.map(([n, b, np], si) => [0, 1, 2].map(() => newShape(n, b, si, np)));
-  const nSlots = slots.length;
-
-  // ----- Round 1 (training): per slot one SAME and one DIFFERENT trial ----------
-  const train = [];
-  const repeatedFromSame = new Set(rng.shuffle([...Array(nSlots).keys()]).slice(0, Math.floor(nSlots / 2)));
-  const repeated = []; // {shape, trainTrial}
-  const fresh = [];
-  slots.forEach((trio, si) => {
-    const [a, b] = rng.shuffle([trio[0], trio[1]]);
-    const tSame = { block: 'train', phase: 'train', shape: a, condition: 'same' };
-    const tDiff = { block: 'train', phase: 'train', shape: b, condition: 'different' };
-    train.push(tSame, tDiff);
-    // The repeated shape is the "same" trial in half the slots and the "different" one in the other half.
-    repeated.push(repeatedFromSame.has(si) ? { shape: a, trainTrial: tSame } : { shape: b, trainTrial: tDiff });
-    fresh.push(trio[2]);
-  });
-
-  // ----- Round 2 (test): 10 repeated + 10 new ---------------------------------
-  // Repeated: ~half keep their round-1 answer, ~half switch, overall 50 % same.
-  const repSame = rng.shuffle(repeated.filter((r) => r.trainTrial.condition === 'same'));
-  const repDiff = rng.shuffle(repeated.filter((r) => r.trainTrial.condition === 'different'));
-  const keepS = Math.ceil(repSame.length / 2), keepD = Math.ceil(repDiff.length / 2);
-  const mkRep = (r, condition) => ({
-    block: 'test', phase: 'test_repeated', shape: r.shape, condition, trainTrial: r.trainTrial,
-  });
-  const repTrials = [
-    ...repSame.map((r, i) => mkRep(r, i < keepS ? 'same' : 'different')),
-    ...repDiff.map((r, i) => mkRep(r, i < keepD ? 'different' : 'same')),
-  ];
-  const newTrials = rng.shuffle(fresh).map((s, i) => ({
-    block: 'test', phase: 'test_new', shape: s,
-    condition: i < Math.ceil(fresh.length / 2) ? 'same' : 'different',
-  }));
-  const test = [...repTrials, ...newTrials];
-  if (config.repeatNewView) {
-    assignAnglesAndAxes([...train, ...test]);
-  } else {
-    assignAnglesAndAxes([...train, ...newTrials]);
-    for (const t of repTrials) { t.angle = t.trainTrial.angle; t.axis = t.trainTrial.axis; }
-  }
 
   // ----- Demo shape for the instructions (not used in any trial) ---------------
   const demoShape = newShape(9, 3, -1);
@@ -201,9 +170,6 @@ export function buildStimuli(config) {
     { block: 'demo', phase: 'demo', shape: demoShape, condition: 'same', angle: 90, axis: 'y' },
     { block: 'demo', phase: 'demo', shape: demoShape, condition: 'different', angle: 60, axis: 'z' },
   ];
-
-  train.forEach((t, i) => { t.trial_id = `train_${String(i + 1).padStart(2, '0')}`; });
-  test.forEach((t, i) => { t.trial_id = `test_${String(i + 1).padStart(2, '0')}`; });
   demo.forEach((t, i) => { t.trial_id = `demo_${i + 1}`; });
 
   // ----- Viewpoints: the clearest of many random candidates --------------------
@@ -222,14 +188,91 @@ export function buildStimuli(config) {
     t.view = best;
     t.min_cube_visible = Math.round(bestScore * 1000) / 1000;
   };
-  for (const t of [...train, ...test, ...demo]) {
-    if (t.trainTrial && !config.repeatNewView) {
-      t.view = { ...t.trainTrial.view };
-      t.min_cube_visible = t.trainTrial.min_cube_visible;
-    } else {
-      chooseView(t);
+  for (const t of demo) chooseView(t);
+
+  // ----- Stimulus sets ---------------------------------------------------------
+  // All sets use the same 30 shapes. Within each slot the three shapes rotate roles,
+  // so across sets every shape is repeated once, round-1-only once and new once.
+  // Each set gets its own balanced angles, axes and viewpoints.
+  // roleOrder[slot] = [repeated, round-1 only, new] shapes of set 1.
+  let roleOrder = slots;
+  if (firstSet) {
+    const byId = new Map(shapes.map((sh) => [sh.id, sh]));
+    const repeatedIds = new Set(firstSet.test.filter((t) => t.phase === 'test_repeated').map((t) => t.shapeId));
+    roleOrder = slots.map((trio) => {
+      const ids = trio.map((sh) => sh.id);
+      const inSlot = (ts) => ts.map((t) => t.shapeId).filter((id) => ids.includes(id));
+      const rep = inSlot(firstSet.train).find((id) => repeatedIds.has(id));
+      const once = inSlot(firstSet.train).find((id) => !repeatedIds.has(id));
+      const fresh = inSlot(firstSet.test.filter((t) => t.phase === 'test_new'))[0];
+      if (!rep || !once || !fresh) throw new Error('firstSet does not match the generated shapes');
+      return [rep, once, fresh].map((id) => byId.get(id));
+    });
+    for (const t of [...firstSet.train, ...firstSet.test]) {
+      if (!usedAngles.has(t.shapeId)) usedAngles.set(t.shapeId, new Set());
+      usedAngles.get(t.shapeId).add(t.angle);
     }
   }
+
+  const buildSet = (setIndex) => {
+    const nSlots = slots.length;
+
+    // Round 1 (training): per slot one SAME and one DIFFERENT trial.
+    const train = [];
+    const repeatedFromSame = new Set(rng.shuffle([...Array(nSlots).keys()]).slice(0, Math.floor(nSlots / 2)));
+    const repeated = []; // {shape, trainTrial}
+    const fresh = [];
+    roleOrder.forEach((trio, si) => {
+      const rep = trio[setIndex % 3];
+      const once = trio[(setIndex + 1) % 3];
+      // The repeated shape is the "same" trial in half the slots and the "different" one in the other half.
+      const repIsSame = repeatedFromSame.has(si);
+      const tRep = { block: 'train', phase: 'train', shape: rep, condition: repIsSame ? 'same' : 'different' };
+      const tOnce = { block: 'train', phase: 'train', shape: once, condition: repIsSame ? 'different' : 'same' };
+      train.push(...(repIsSame ? [tRep, tOnce] : [tOnce, tRep]));
+      repeated.push({ shape: rep, trainTrial: tRep });
+      fresh.push(trio[(setIndex + 2) % 3]);
+    });
+
+    // Round 2 (test): 10 repeated + 10 new.
+    // Repeated: ~half keep their round-1 answer, ~half switch, overall 50 % same.
+    const repSame = rng.shuffle(repeated.filter((r) => r.trainTrial.condition === 'same'));
+    const repDiff = rng.shuffle(repeated.filter((r) => r.trainTrial.condition === 'different'));
+    const keepS = Math.ceil(repSame.length / 2), keepD = Math.ceil(repDiff.length / 2);
+    const mkRep = (r, condition) => ({
+      block: 'test', phase: 'test_repeated', shape: r.shape, condition, trainTrial: r.trainTrial,
+    });
+    const repTrials = [
+      ...repSame.map((r, i) => mkRep(r, i < keepS ? 'same' : 'different')),
+      ...repDiff.map((r, i) => mkRep(r, i < keepD ? 'different' : 'same')),
+    ];
+    const newTrials = rng.shuffle(fresh).map((s, i) => ({
+      block: 'test', phase: 'test_new', shape: s,
+      condition: i < Math.ceil(fresh.length / 2) ? 'same' : 'different',
+    }));
+    const test = [...repTrials, ...newTrials];
+    if (config.repeatNewView) {
+      assignAnglesAndAxes([...train, ...test]);
+    } else {
+      assignAnglesAndAxes([...train, ...newTrials]);
+      for (const t of repTrials) { t.angle = t.trainTrial.angle; t.axis = t.trainTrial.axis; }
+    }
+
+    train.forEach((t, i) => { t.trial_id = `train_${String(i + 1).padStart(2, '0')}`; });
+    test.forEach((t, i) => { t.trial_id = `test_${String(i + 1).padStart(2, '0')}`; });
+    for (const t of [...train, ...test]) {
+      if (t.trainTrial && !config.repeatNewView) {
+        t.view = { ...t.trainTrial.view };
+        t.min_cube_visible = t.trainTrial.min_cube_visible;
+      } else {
+        chooseView(t);
+      }
+      if (!usedAngles.has(t.shape.id)) usedAngles.set(t.shape.id, new Set());
+      usedAngles.get(t.shape.id).add(t.angle);
+    }
+    return { train, test };
+  };
+  const sets = Array.from({ length: config.stimulusSets }, (_, i) => (firstSet && i === 0 ? null : buildSet(i)));
 
   // ----- Practice trials -------------------------------------------------------
   // Generated last so that the random stream of the experimental stimuli is unaffected.
@@ -253,8 +296,9 @@ export function buildStimuli(config) {
   });
   const body = {
     shapes: [...shapes, demoShape, ...practice.map((t) => t.shape)],
-    train: train.map(plain),
-    test: test.map(plain),
+    sets: sets.map((set) => (set
+      ? { train: set.train.map(plain), test: set.test.map(plain) }
+      : { train: firstSet.train, test: firstSet.test })),
     demo: demo.map(plain),
     practice: practice.map(plain),
   };
@@ -262,11 +306,14 @@ export function buildStimuli(config) {
 }
 
 // Applies one participant's counterbalancing group and trial order.
-export function arrangeDesign(stimuli, { orderSeed = 1, group = 0 } = {}) {
+// `set` is 1-based: 1 .. stimuli.sets.length.
+export function arrangeDesign(stimuli, { orderSeed = 1, group = 0, set = 1 } = {}) {
   const byShape = new Map(stimuli.shapes.map((s) => [s.id, s]));
   const hydrate = (t) => ({ ...t, shape: byShape.get(t.shapeId) });
-  const train = stimuli.train.map(hydrate);
-  const test = stimuli.test.map(hydrate);
+  const chosen = stimuli.sets[set - 1];
+  if (!chosen) throw new Error(`No stimulus set ${set}`);
+  const train = chosen.train.map(hydrate);
+  const test = chosen.test.map(hydrate);
   const demo = stimuli.demo.map(hydrate);
   const practice = stimuli.practice.map(hydrate);
   const trainById = new Map(train.map((t) => [t.trial_id, t]));
@@ -278,6 +325,6 @@ export function arrangeDesign(stimuli, { orderSeed = 1, group = 0 } = {}) {
   return {
     train: shuffleConstrained(orng, train),
     test: shuffleConstrained(orng, test),
-    demo, practice, group, orderSeed,
+    demo, practice, group, orderSeed, set,
   };
 }

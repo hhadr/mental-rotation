@@ -156,3 +156,9 @@ button:focus-visible { outline: 3px solid #9db4f0; outline-offset: 2px; }
   #response-bar { gap: 12px; }
   #response-bar button { min-width: 0; flex: 1; }
 }
+
+/* ---- End-screen statistics ---- */
+table.stats { border-collapse: collapse; margin-top: 8px; width: 100%; max-width: 520px; }
+table.stats th, table.stats td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: right; }
+table.stats th[scope="row"] { text-align: left; font-weight: normal; color: var(--muted); }
+table.stats td { font-variant-numeric: tabular-nums; }

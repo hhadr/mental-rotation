@@ -18,12 +18,15 @@ Round 2: no feedback.
 
 const toBlob = () => new Promise((r) => renderer.canvas.toBlob(r, 'image/png'));
 
+$('#set').innerHTML = STIMULI.sets.map((_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+
 $('#run').addEventListener('click', async () => {
   const btn = $('#run');
   btn.disabled = true;
   const orderSeed = +$('#order').value || 1;
   const group = +$('#group').value;
-  const design = arrangeDesign(STIMULI, { orderSeed, group });
+  const set = +$('#set').value;
+  const design = arrangeDesign(STIMULI, { orderSeed, group, set });
   const zip = new JSZip();
   const grid = $('#grid');
   grid.innerHTML = '';
@@ -51,7 +54,7 @@ $('#run').addEventListener('click', async () => {
     fig.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt=""><figcaption>${name} · ${t.condition} · ${t.angle}° ${t.axis} · ${t.shape.metrics.n_cubes} cubes / ${t.shape.metrics.n_bends} bends</figcaption>`;
     grid.appendChild(fig);
     manifest.push({
-      order: k + 1, round, trial_index: i + 1, image: `${name}.png`, solution_image: solution,
+      stimulus_set: set, order: k + 1, round, trial_index: i + 1, image: `${name}.png`, solution_image: solution,
       trial_id: t.trial_id, phase: t.phase, is_repeated: t.phase === 'test_repeated' ? 1 : 0,
       shape_id: t.shape.id, complexity_slot: t.shape.slot, correct_answer: t.condition,
       angle: t.angle, axis: t.axis, view_prerot: t.view.prerot, view_tilt: t.view.tilt, view_yaw: t.view.yaw, min_cube_visible: t.min_cube_visible,
@@ -61,12 +64,12 @@ $('#run').addEventListener('click', async () => {
   }
   zip.file('manifest.csv', '﻿' + toCSV(manifest));
   zip.file('prompt.txt', PROMPT);
-  zip.file('design.json', JSON.stringify({ stimulusSeed: CONFIG.stimulusSeed, orderSeed, group, config: CONFIG }, null, 2));
+  zip.file('design.json', JSON.stringify({ stimulusSeed: CONFIG.stimulusSeed, stimulusHash: STIMULI.hash, stimulusSet: set, orderSeed, group, config: CONFIG }, null, 2));
   $('#status').textContent = 'Zipping…';
   const blob = await zip.generateAsync({ type: 'blob' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `stimuli_seed${CONFIG.stimulusSeed}_order${orderSeed}_group${group}.zip`;
+  a.download = `stimuli_set${set}_order${orderSeed}_group${group}.zip`;
   a.click();
   $('#status').textContent = `Done: ${trials.length} trials.`;
   btn.disabled = false;

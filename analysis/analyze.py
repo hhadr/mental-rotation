@@ -43,6 +43,13 @@ def load(folder):
     df = pd.concat([pd.read_csv(f, encoding="utf-8-sig") for f in files], ignore_index=True)
     # The same participant may have been saved twice (upload + manual download).
     df = df.drop_duplicates(subset=["participant_id", "trial_id"], keep="last")
+    # Version 1.4.0 had a single set, which is now set 1 (its stimulus_hash was 6314ede9).
+    if "stimulus_set" not in df.columns:
+        df["stimulus_set"] = np.nan
+    old = df["stimulus_set"].isna() & (df["stimulus_hash"].astype(str) == "6314ede9")
+    df.loc[old, "stimulus_set"] = 1
+    print("Participants per stimulus set:",
+          df.groupby("stimulus_set", dropna=False)["participant_id"].nunique().to_dict())
     print(f"Loaded {len(files)} files, {df.participant_id.nunique()} participants, {len(df)} trials")
     return df
 
